@@ -7,7 +7,7 @@
 ## ✨ Function
 
 - **Indirect Syscall**: sh4loader use `indirect` syscall.
-- **Caro Kann**: Sh4lib use [Caro-Kann](https://github.com/S3cur3Th1sSh1t/Caro-Kann) injection to evade kernel triggered memory scans.
+- **Caro Kann**: sh4loader use [Caro-Kann](https://github.com/S3cur3Th1sSh1t/Caro-Kann) injection to evade kernel triggered memory scans.
 - **Runtime Decrypt Shellcode**: sh4loader will bruteforce shellcode decryption key at runtime.
 - **Threadless injection**: sh4loader use threadless injection.
 - **CallstackSpoofing**: sh4loader use [CallstackSpoofing](https://github.com/pard0p/CallstackSpoofingPOC)
