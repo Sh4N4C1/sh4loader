@@ -121,6 +121,7 @@ This Injection Method just use indirect syscalls inject main shellcode into the 
 - https://github.com/caueb/ThreadlessStompingKann
 - https://0xdarkvortex.dev/hiding-in-plainsight/
 - https://maldevacademy.com/
+- https://www.vulnlab.com/
 
 This is my first time writing a loader.I'm not some sort of expert on malware development, C, C++.I will be making a lot of mistakes,I hope that my coding skills get better and better
 
