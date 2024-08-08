@@ -1,5 +1,12 @@
 # This project is being refactored
 
+## TODO
+
+- no CRT
+- sleepobf
+- more stable
+- rewrite code
+
 # sh4loader
 
 <p align="center">
